@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Second homework assignment for Cloud Computing Spring 2021. Create photo upload and download
+application with image recognition tagging.'
+Parameters:
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.0.0.0/24
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.0.0/24
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: cloud-hw2-vpc
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "cloud-hw2-sg"
+      GroupDescription: "Security group for cloud group"
+      VpcId: !Ref VPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: cloud-hw2-subnet
+
+  LambdaBucket:
+    Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: PublicRead
+      DeletionPolicy: Retain
+
+  FrontEndBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+    DeletionPolicy: Retain
+
+  FrontEndBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref S3Bucket
+                - /*
+    Bucket: !Ref FrontEndBucket
+
+  #TODO: Add Put Lambda
+  PostPhotoLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+        Role: !GetAtt LambdaExecutionRole.Arn
+        Code:
+          ZipFile: !Sub |
+        #          var response = require('cfn-response');
+        #          exports.handler = function(event, context) {
+        #             var responseData = {Value: event.ResourceProperties.List};
+        #             responseData.Value.push(event.ResourceProperties.AppendedItem);
+        #             response.send(event, context, response.SUCCESS, responseData);
+        #          };
+        Runtime: Python 3.8
+        VpcConfig:
+          SecurityGroupIds:
+            - !Ref SecurityGroup
+          SubnetIds:
+            - !Ref PublicSubnet
+
+  GetPhotoLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: !Sub |
+      #          var response = require('cfn-response');
+      #          exports.handler = function(event, context) {
+      #             var responseData = {Value: event.ResourceProperties.List};
+      #             responseData.Value.push(event.ResourceProperties.AppendedItem);
+      #             response.send(event, context, response.SUCCESS, responseData);
+      #          };
+      Runtime: Python 3.8
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        SubnetIds:
+          - !Ref PublicSubnet
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: arn:aws:logs:*:*:*
+
+#TODO: Add Elasticsearch
+  Type: AWS::Elasticsearch::Domain
+  Properties:
+    AccessPolicies:
+      Version: "2012-10-17"
+      "Statement":
+          - "Effect": "Allow"
+            "Principal":
+              "AWS": '*'
+            "Action":
+                - "es:*"
+            "Resource": "arn:aws:es:us-west-1:987654321098:domain/test-domain/*"
+    DomainEndpointOptions:
+      DomainEndpointOptions
+    DomainName: String
+    EBSOptions:
+      EBSEnabled: true
+      VolumeSize: 10
+      VolumeType: gp2
+    ElasticsearchClusterConfig:
+      ElasticsearchClusterConfig
+    ElasticsearchVersion: 7.9
+    EncryptionAtRestOptions:
+      EncryptionAtRestOptions
+    LogPublishingOptions:
+      Key: Value
+    NodeToNodeEncryptionOptions:
+      NodeToNodeEncryptionOptions
+    SnapshotOptions:
+      SnapshotOptions
+    Tags:
+      - Tag
+    VPCOptions:
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetIds:
+        - !Ref PublicSubnet
+
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      NotificationConfiguration:
+        LambdaConfiguration:
+          Event: 's3:ObjectCreated:*'
+          Function: !Ref PostPhotoLambda
+#          !GetAtt PostPhotoLambda.Arn
+#          TODO: Add trigger lambda
+
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref S3Bucket
+                - /*
+    Bucket: !Ref PhotoBucket
+
+  GetPhotoApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: Get Photo Api
+      Description: Api to get photos using tags
+      FailOnWarnings: true
+
+  LambdaPermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      FunctionName: !GetAtt
+        -
+
+Output:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC
+  WebsiteURL:
+    Value: !GetAtt
+      - S3Bucket
+      - WebsiteURL
+    Description: URL for website hosted on S3
+  S3BucketSecureURL:
+    Value: !Join
+      - ''
+      - - 'https://'
+        - !GetAtt
+          - S3Bucket
+          - DomainName
+    Description: Name of S3 bucket to hold website content
+
+
